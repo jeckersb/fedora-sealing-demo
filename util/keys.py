@@ -35,9 +35,9 @@ def generate_keys(output_dir: Path):
     output_dir.mkdir(parents=True, exist_ok=True)
 
     for name, cn in [
-        ("PK", "Secure Boot Platform Key"),
-        ("KEK", "Secure Boot Key Exchange Key"),
-        ("db", "Secure Boot Signature Database"),
+        ("PK", "Cloud Native RTP Secure Boot Platform Key"),
+        ("KEK", "Cloud Native RTP Secure Boot Key Exchange Key"),
+        ("db", "Cloud Native RTP Secure Boot Signature Database"),
     ]:
         key = output_dir / f"sb-{name}.key"
         crt = output_dir / f"sb-{name}.crt"

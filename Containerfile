@@ -38,7 +38,8 @@
 #     --secret id=secureboot_cert,src=keys/db.crt \
 #     -t localhost/sealed-host:latest .
 
-ARG base=registry.redhat.io/rhel10/rhel-bootc:10.2
+#ARG base=registry.redhat.io/rhel10/rhel-bootc:10.2
+ARG base=quay.io/fedora/fedora-bootc:44
 FROM ${base} as base
 
 # ---------------------------------------------------------------------------
@@ -51,22 +52,9 @@ FROM ${base} as base
 #
 # You may also want to use e.g. --install to add extra packages here.
 FROM base AS target-base
-# Workaround for https://github.com/coreos/rpm-ostree/pull/5597 (libdnf only
-# reads the first armor block from a key file). RHEL 10's
-# RPM-GPG-KEY-redhat-release contains three blocks (RSA, Ed448, ML-DSA);
-# split them into individual files so rpm-ostree can import all of them.
-RUN python3 - <<'EOF'
-import re, pathlib
-gpgdir = pathlib.Path("/etc/pki/rpm-gpg")
-key = gpgdir / "RPM-GPG-KEY-redhat-release"
-blocks = re.findall(
-    r"-----BEGIN PGP PUBLIC KEY BLOCK-----.*?-----END PGP PUBLIC KEY BLOCK-----",
-    key.read_text(), re.DOTALL)
-for i, block in enumerate(blocks):
-    (gpgdir / f"RPM-GPG-KEY-redhat-release-{i}").write_text(block + "\n")
-EOF
 RUN --mount=type=tmpfs,target=/run --mount=type=tmpfs,target=/tmp \
-    /usr/libexec/bootc-base-imagectl build-rootfs --manifest=standard /target-rootfs
+    /usr/libexec/bootc-base-imagectl build-rootfs --manifest=standard \
+    --install binutils --install sbsigntools --install fsverity-utils /target-rootfs
 
 # ---------------------------------------------------------------------------
 # Stage: boot-rpms — download the bootloader RPM that belongs in the final image
@@ -76,7 +64,7 @@ RUN --mount=type=tmpfs,target=/run --mount=type=tmpfs,target=/tmp \
 FROM base AS boot-rpms
 RUN --mount=type=tmpfs,target=/run --mount=type=tmpfs,target=/tmp \
     mkdir -p /rpms && \
-    dnf -y install --downloadonly --downloaddir=/rpms systemd-boot-unsigned && \
+    dnf -y download --destdir=/rpms systemd-boot-unsigned && \
     dnf clean all
 
 # ---------------------------------------------------------------------------
@@ -111,7 +99,7 @@ set -xeuo pipefail
 # We will use systemd-boot, so remove bootupd.
 rpm -e bootupd
 # Import the Red Hat signing keys up front: offline, dnf can't fetch them itself.
-rpm --import /run/keys/RPM-GPG-KEY-redhat-*
+rpm --import /run/keys/RPM-GPG-KEY-fedora-*
 # localpkg_gpgcheck enforces signatures on the local rpms (dnf leaves it off).
 dnf -y install --disablerepo='*' --setopt=localpkg_gpgcheck=1 /run/rpms/*.rpm
 dnf clean all
@@ -136,6 +124,10 @@ cat > /usr/lib/bootc/install/00-ext4-default.toml <<'EOF'
 [install.filesystem.root]
 type = "ext4"
 EOF
+
+# This cannot write to /boot and produces a noisy error so disable it
+systemctl mask systemd-tpm2-setup.service
+
 EORUN
 
 # Sign systemd-boot with our Secure Boot key so UEFI firmware will load it.
